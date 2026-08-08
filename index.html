@@ -596,7 +596,7 @@
       </div>
 
       <div class="utility-menu-btns">
-        <button class="btn-secondary" onclick="openModal('controlModal')">🎛️ LCD Backlight Remote</button>
+        <button class="btn-secondary" onclick="openModal('controlModal')">💡 LCD Backlight Control</button>
         <button class="btn-secondary" onclick="openModal('historyModal')">📊 Stored Telemetry</button>
       </div>
     </div>
@@ -723,7 +723,7 @@
 
       <!-- SENSOR 9: aiprediction -->
       <div class="card ai-card">
-        <h2>🤖 AI Weather Model</h2>
+        <h2>AI Forecast</h2>
         <div class="metric-value" id="valAiLabel">Analyzing...</div>
         <div class="chart-container"><canvas id="chartAi"></canvas></div>
         <div class="metric-sub">RP2040 MicroTF On-Device Neural Net</div>
@@ -733,7 +733,7 @@
     <!-- BOTTOM COMMAND INTERFACE MODULE -->
     <div id="consoleModule" class="card console-module minimized">
       <div class="console-header">
-        <h3>💻 Command Terminal</h3>
+        <h3>Serial Terminal</h3>
         <div class="tray-arrow-btn" id="trayArrow" onclick="toggleConsoleModule(event)">˄</div>
         <div></div><!-- Grid Spacer for True Centering -->
       </div>
@@ -775,7 +775,7 @@
   <div id="controlModal" class="modal-overlay hidden">
     <div class="card modal-content">
       <div class="modal-header">
-        <h2>LCD Backlight Remote Control</h2>
+        <h2>LCD Backlight Control</h2>
         <button class="btn-close" onclick="closeModal('controlModal')">&times;</button>
       </div>
       <div class="color-controls">
