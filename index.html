@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Weather Station Control & Telemetry</title>
+  <!-- Chart.js for Adafruit IO Style Data Visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg-color: #0f172a;
@@ -15,6 +17,7 @@
       --text-muted: #94a3b8;
       --success: #22c55e;
       --danger: #ef4444;
+      --purple-accent: #c084fc;
     }
 
     * {
@@ -32,7 +35,7 @@
     }
 
     .container {
-      max-width: 1200px;
+      max-width: 1300px;
       margin: 0 auto;
       display: flex;
       flex-direction: column;
@@ -57,6 +60,13 @@
       display: flex;
       align-items: center;
       gap: 10px;
+    }
+
+    .status-badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 5px;
     }
 
     .status-badge {
@@ -141,6 +151,21 @@
     .metric-sub {
       font-size: 0.85rem;
       color: var(--text-muted);
+    }
+
+    .ai-card {
+      border: 1px solid var(--purple-accent);
+      background: linear-gradient(135deg, rgba(30,41,59,1) 0%, rgba(88,28,135,0.2) 100%);
+    }
+
+    .ai-card .metric-value {
+      color: var(--purple-accent);
+    }
+
+    .chart-container {
+      position: relative;
+      height: 180px;
+      width: 100%;
     }
 
     .color-controls {
@@ -228,40 +253,55 @@
     <header>
       <div>
         <h1>🌤️ Weather Station Dashboard</h1>
-        <span id="serialStatus" class="status-badge">Serial: Disconnected</span>
-        <span id="aioStatus" class="status-badge">Adafruit IO: Inactive</span>
+        <div class="status-badges">
+          <span id="serialStatus" class="status-badge">Serial: Disconnected</span>
+          <span id="picoWifiStatus" class="status-badge">Pico Wi-Fi: Offline</span>
+          <span id="aioStatus" class="status-badge">Adafruit IO: Inactive</span>
+        </div>
       </div>
       <div class="btn-group">
         <button id="btnConnectSerial">Connect Web Serial</button>
-        <button id="btnAioConfig" class="btn-secondary">Configure Adafruit IO</button>
+        <button id="btnConnectPicoWifi" class="btn-secondary">Direct Pico Wi-Fi IP</button>
+        <button id="btnAioConfig" class="btn-secondary">Adafruit IO API</button>
       </div>
     </header>
 
+    <!-- METRICS GRID WITH HISTORICAL CHARTS -->
     <div class="grid">
       <div class="card">
-        <h2>BME Temp & Humidity</h2>
+        <h2>BME Temperature (°F)</h2>
         <div class="metric-value" id="valBmeTemp">-- °F</div>
-        <div class="metric-sub">Humidity: <span id="valHumidity">--</span>%</div>
-        <div class="metric-sub">Pressure: <span id="valPressure">--</span> hPa</div>
+        <div class="chart-container"><canvas id="chartTemp"></canvas></div>
+        <div class="metric-sub">Humidity: <span id="valHumidity">--</span>% | Pressure: <span id="valPressure">--</span> hPa</div>
       </div>
 
       <div class="card">
-        <h2>NTC Thermistor</h2>
+        <h2>NTC Thermistor (°F)</h2>
         <div class="metric-value" id="valNtcTemp">-- °F</div>
-        <div class="metric-sub">Redundant Temperature Sensor</div>
+        <div class="chart-container"><canvas id="chartNtc"></canvas></div>
+        <div class="metric-sub">Redundant Analog Temperature</div>
       </div>
 
       <div class="card">
         <h2>UV Index</h2>
         <div class="metric-value" id="valUvIndex">--</div>
+        <div class="chart-container"><canvas id="chartUv"></canvas></div>
         <div class="metric-sub">Raw ADC Count: <span id="valUvRaw">--</span> / 4095</div>
       </div>
 
       <div class="card">
-        <h2>Gas & GPS</h2>
+        <h2>Gas Resistance (kΩ)</h2>
         <div class="metric-value" id="valGas">-- kΩ</div>
-        <div class="metric-sub">Gas Resistance (Air Quality)</div>
-        <div class="metric-sub" style="margin-top: 8px;">GPS: <span id="valGps">Searching...</span></div>
+        <div class="chart-container"><canvas id="chartGas"></canvas></div>
+        <div class="metric-sub">GPS Location: <span id="valGps">Searching...</span></div>
+      </div>
+
+      <!-- NEW DEDICATED AI FORECAST CARD -->
+      <div class="card ai-card">
+        <h2>🤖 AI Forecast Model</h2>
+        <div class="metric-value" id="valAiLabel">Analyzing...</div>
+        <div class="chart-container"><canvas id="chartAi"></canvas></div>
+        <div class="metric-sub">On-Device MicroTF Prediction Output</div>
       </div>
     </div>
 
@@ -271,9 +311,10 @@
         
         <div class="color-controls">
           <div>
-            <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px; display: block;">Transport Method:</label>
+            <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px; display: block;">Transport Protocol:</label>
             <select id="transportSelect">
-              <option value="wifi">Adafruit IO Cloud (Wi-Fi)</option>
+              <option value="wifi">Adafruit IO Cloud (MQTT/HTTP)</option>
+              <option value="pico_direct">Direct Pico W Wi-Fi (HTTP/WebSocket)</option>
               <option value="serial">USB Serial (Web Serial API)</option>
             </select>
           </div>
@@ -301,8 +342,8 @@
       </div>
 
       <div class="card">
-        <h2>Console Output & Logs</h2>
-        <textarea id="terminal" readonly placeholder="Command logs and serial stream will appear here..."></textarea>
+        <h2>Console Output & Serial Logs</h2>
+        <textarea id="terminal" readonly placeholder="Command logs and incoming data streams will appear here..."></textarea>
       </div>
     </div>
 
@@ -327,10 +368,11 @@
               <th>NTC Temp (°F)</th>
               <th>UV Index</th>
               <th>Gas (kΩ)</th>
+              <th>AI Forecast</th>
             </tr>
           </thead>
           <tbody id="historyTableBody">
-            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No stored readings yet.</td></tr>
+            <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No stored readings yet.</td></tr>
           </tbody>
         </table>
       </div>
@@ -342,11 +384,15 @@
     let serialWriter = null;
     let aioUsername = localStorage.getItem('aio_username') || '';
     let aioKey = localStorage.getItem('aio_key') || '';
+    let picoIp = localStorage.getItem('pico_ip') || '';
     let aioPollInterval = null;
+    let picoWs = null;
 
     const btnConnectSerial = document.getElementById('btnConnectSerial');
+    const btnConnectPicoWifi = document.getElementById('btnConnectPicoWifi');
     const btnAioConfig = document.getElementById('btnAioConfig');
     const serialStatus = document.getElementById('serialStatus');
+    const picoWifiStatus = document.getElementById('picoWifiStatus');
     const aioStatus = document.getElementById('aioStatus');
     const terminal = document.getElementById('terminal');
     const historyTableBody = document.getElementById('historyTableBody');
@@ -360,13 +406,45 @@
     const valUvRaw = document.getElementById('valUvRaw');
     const valGas = document.getElementById('valGas');
     const valGps = document.getElementById('valGps');
+    const valAiLabel = document.getElementById('valAiLabel');
 
     function logConsole(msg) {
       terminal.value += `${msg}\n`;
       terminal.scrollTop = terminal.scrollHeight;
     }
 
-    // Web Serial Integration
+    // CHART.JS INITIALIZATION (Adafruit IO Style Sparklines)
+    function createChartConfig(label, color) {
+      return {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: label, data: [], borderColor: color, backgroundColor: color + '22', fill: true, tension: 0.3 }] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { display: false }, y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } } }
+        }
+      };
+    }
+
+    const chartTemp = new Chart(document.getElementById('chartTemp').getContext('2d'), createChartConfig('BME Temp', '#38bdf8'));
+    const chartNtc  = new Chart(document.getElementById('chartNtc').getContext('2d'), createChartConfig('NTC Temp', '#22c55e'));
+    const chartUv   = new Chart(document.getElementById('chartUv').getContext('2d'), createChartConfig('UV Index', '#eab308'));
+    const chartGas  = new Chart(document.getElementById('chartGas').getContext('2d'), createChartConfig('Gas', '#f97316'));
+    const chartAi   = new Chart(document.getElementById('chartAi').getContext('2d'), createChartConfig('AI Output', '#c084fc'));
+
+    function pushChartData(chart, value) {
+      const timeStr = new Date().toLocaleTimeString();
+      chart.data.labels.push(timeStr);
+      chart.data.datasets[0].data.push(value);
+      if (chart.data.labels.length > 20) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+      chart.update();
+    }
+
+    // 1. WEB SERIAL INTEGRATION
     btnConnectSerial.addEventListener('click', async () => {
       if (!("serial" in navigator)) {
         alert("Web Serial API is not supported in this browser. Please use Chrome or Edge.");
@@ -391,7 +469,7 @@
         await serialPort.open({ baudRate: 115200 });
 
         serialWriter = serialPort.writable.getWriter();
-        serialStatus.textContent = "Serial: Connected (115200 baud)";
+        serialStatus.textContent = "Serial: Connected";
         serialStatus.classList.add("connected");
         btnConnectSerial.textContent = "Disconnect Serial";
 
@@ -422,7 +500,42 @@
       }
     }
 
-    // Unified Command Sender
+    // 2. DIRECT PICO W WI-FI SERIAL / WEBSOCKET INTEGRATION
+    btnConnectPicoWifi.addEventListener('click', () => {
+      const ip = prompt("Enter Pico W Local IP Address (e.g. 192.168.1.150):", picoIp);
+      if (ip === null) return;
+      picoIp = ip.trim();
+      localStorage.setItem('pico_ip', picoIp);
+      connectPicoWebSocket();
+    });
+
+    function connectPicoWebSocket() {
+      if (!picoIp) return;
+      
+      logConsole(`>> [Pico Wi-Fi] Attempting direct connection to ws://${picoIp}:81/...`);
+      picoWs = new WebSocket(`ws://${picoIp}:81/`);
+
+      picoWs.onopen = () => {
+        logConsole(`>> [Pico Wi-Fi] Connected directly to Pico W!`);
+        picoWifiStatus.textContent = `Pico Wi-Fi: ${picoIp}`;
+        picoWifiStatus.classList.add("connected");
+      };
+
+      picoWs.onmessage = (event) => {
+        logConsole(`>> [Pico Stream] ${event.data}`);
+        try {
+          const data = JSON.parse(event.data);
+          updateTelemetryUI(data);
+        } catch(e) {}
+      };
+
+      picoWs.onerror = () => {
+        picoWifiStatus.textContent = "Pico Wi-Fi: Connection Failed";
+        picoWifiStatus.classList.remove("connected");
+      };
+    }
+
+    // 3. UNIFIED COMMAND DISPATCHER
     async function dispatchCommand(cmd) {
       const mode = transportSelect.value;
 
@@ -433,29 +546,29 @@
         }
 
         try {
-          logConsole(`>> [Wi-Fi Transmit] Sending "${cmd}" to messageboard feed...`);
+          logConsole(`>> [Adafruit IO Transmit] Sending "${cmd}"...`);
           const response = await fetch(`https://io.adafruit.com/api/v2/${aioUsername}/feeds/messageboard/data`, {
             method: 'POST',
-            headers: {
-              'X-AIO-Key': aioKey,
-              'Content-Type': 'application/json'
-            },
+            headers: { 'X-AIO-Key': aioKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({ value: cmd })
           });
 
-          if (response.ok) {
-            logConsole(`>> [Wi-Fi Success] Message delivered to Adafruit IO.`);
-          } else {
-            logConsole(`>> [Wi-Fi Error] HTTP ${response.status}: Failed to deliver.`);
-          }
-        } catch (err) {
-          logConsole(`>> [Wi-Fi Error] ${err.message}`);
+          if (response.ok) logConsole(`>> [Adafruit IO Success] Delivered to cloud feed.`);
+          else logConsole(`>> [Adafruit IO Error] HTTP ${response.status}`);
+        } catch (err) { logConsole(`>> [Adafruit IO Error] ${err.message}`); }
+
+      } else if (mode === 'pico_direct') {
+        if (picoWs && picoWs.readyState === WebSocket.OPEN) {
+          picoWs.send(cmd);
+          logConsole(`>> [Pico Wi-Fi WebSocket Sent] ${cmd}`);
+        } else {
+          try {
+            logConsole(`>> [Pico Wi-Fi HTTP Fallback] Posting to http://${picoIp}/cmd...`);
+            await fetch(`http://${picoIp}/cmd`, { method: 'POST', body: cmd });
+          } catch(err) { alert("Direct Pico Wi-Fi unavailable. Check IP/Connection."); }
         }
       } else {
-        if (!serialWriter) {
-          alert("Please connect Web Serial first.");
-          return;
-        }
+        if (!serialWriter) { alert("Please connect Web Serial first."); return; }
         const encoder = new TextEncoder();
         await serialWriter.write(encoder.encode(cmd + "\n"));
         logConsole(`>> [USB Serial Sent] ${cmd}`);
@@ -464,40 +577,22 @@
 
     document.getElementById('btnSendRgb').addEventListener('click', () => {
       const hex = document.getElementById('rgbPicker').value;
-      const r = parseInt(hex.substr(1, 2), 16);
-      const g = parseInt(hex.substr(3, 2), 16);
-      const b = parseInt(hex.substr(5, 2), 16);
-      sendColor(r, g, b);
+      sendColor(parseInt(hex.substr(1, 2), 16), parseInt(hex.substr(3, 2), 16), parseInt(hex.substr(5, 2), 16));
     });
 
-    function sendColor(r, g, b) {
-      dispatchCommand(`${r},${g},${b}`);
-    }
-
-    document.getElementById('btnRainbow').addEventListener('click', () => {
-      dispatchCommand('rainbow');
-    });
-
+    function sendColor(r, g, b) { dispatchCommand(`${r},${g},${b}`); }
+    document.getElementById('btnRainbow').addEventListener('click', () => dispatchCommand('rainbow'));
     document.getElementById('btnSendRaw').addEventListener('click', () => {
       const cmd = document.getElementById('rawSerialCmd').value.trim();
-      if (cmd) {
-        dispatchCommand(cmd);
-        document.getElementById('rawSerialCmd').value = '';
-      }
+      if (cmd) { dispatchCommand(cmd); document.getElementById('rawSerialCmd').value = ''; }
     });
 
-    // Adafruit IO Integration
+    // 4. ADAFRUIT IO INTEGRATION & HISTORICAL DATA FETCHING
     btnAioConfig.addEventListener('click', () => {
-      const user = prompt("Enter Adafruit IO Username:", aioUsername);
-      if (user === null) return;
-      const key = prompt("Enter Adafruit IO Key:", aioKey);
-      if (key === null) return;
-
-      aioUsername = user.trim();
-      aioKey = key.trim();
-      localStorage.setItem('aio_username', aioUsername);
-      localStorage.setItem('aio_key', aioKey);
-
+      const user = prompt("Enter Adafruit IO Username:", aioUsername); if (user === null) return;
+      const key = prompt("Enter Adafruit IO Key:", aioKey); if (key === null) return;
+      aioUsername = user.trim(); aioKey = key.trim();
+      localStorage.setItem('aio_username', aioUsername); localStorage.setItem('aio_key', aioKey);
       startAioPolling();
     });
 
@@ -510,36 +605,53 @@
         if (!response.ok) return null;
         const data = await response.json();
         return data.value;
-      } catch (err) {
-        return null;
-      }
+      } catch (err) { return null; }
     }
 
     async function updateDashboardFromAIO() {
       if (!aioUsername || !aioKey) return;
 
-      const [tempbme, humidity, pressure, tempntc, uvindex, uvraw, gas, gps] = await Promise.all([
-        fetchFeedData('tempbme'),
-        fetchFeedData('humidity'),
-        fetchFeedData('pressure'),
-        fetchFeedData('tempthermistor'),
-        fetchFeedData('uvindex'),
-        fetchFeedData('uvraw'),
-        fetchFeedData('gasresistance'),
-        fetchFeedData('gps')
+      const [tempbme, humidity, pressure, tempntc, uvindex, uvraw, gas, gps, aiFeed] = await Promise.all([
+        fetchFeedData('tempbme'), fetchFeedData('humidity'), fetchFeedData('pressure'),
+        fetchFeedData('tempthermistor'), fetchFeedData('uvindex'), fetchFeedData('uvraw'),
+        fetchFeedData('gasresistance'), fetchFeedData('gps'), fetchFeedData('aiprediction')
       ]);
 
-      if (tempbme !== null) valBmeTemp.textContent = parseFloat(tempbme).toFixed(1) + " °F";
+      if (tempbme !== null) {
+        valBmeTemp.textContent = parseFloat(tempbme).toFixed(1) + " °F";
+        pushChartData(chartTemp, parseFloat(tempbme));
+      }
       if (humidity !== null) valHumidity.textContent = parseFloat(humidity).toFixed(1);
       if (pressure !== null) valPressure.textContent = parseFloat(pressure).toFixed(0);
-      if (tempntc !== null) valNtcTemp.textContent = parseFloat(tempntc).toFixed(1) + " °F";
-      if (uvindex !== null) valUvIndex.textContent = parseFloat(uvindex).toFixed(1);
+      if (tempntc !== null) {
+        valNtcTemp.textContent = parseFloat(tempntc).toFixed(1) + " °F";
+        pushChartData(chartNtc, parseFloat(tempntc));
+      }
+      if (uvindex !== null) {
+        valUvIndex.textContent = parseFloat(uvindex).toFixed(1);
+        pushChartData(chartUv, parseFloat(uvindex));
+      }
       if (uvraw !== null) valUvRaw.textContent = uvraw;
-      if (gas !== null) valGas.textContent = parseFloat(gas).toFixed(2) + " kΩ";
+      if (gas !== null) {
+        valGas.textContent = parseFloat(gas).toFixed(2) + " kΩ";
+        pushChartData(chartGas, parseFloat(gas));
+      }
       if (gps !== null) valGps.textContent = gps.startsWith("0,0") ? "No Sat Fix" : gps;
+      if (aiFeed !== null) {
+        valAiLabel.textContent = aiFeed;
+        pushChartData(chartAi, aiFeed === "Sunny" ? 4 : aiFeed === "Partly Cloudy" ? 3 : aiFeed === "Overcast" ? 2 : 1);
+      }
 
       aioStatus.textContent = "Adafruit IO: Active";
       aioStatus.classList.add("connected");
+    }
+
+    function updateTelemetryUI(data) {
+      if (data.tempbme) { valBmeTemp.textContent = data.tempbme + " °F"; pushChartData(chartTemp, data.tempbme); }
+      if (data.tempntc) { valNtcTemp.textContent = data.tempntc + " °F"; pushChartData(chartNtc, data.tempntc); }
+      if (data.uvindex) { valUvIndex.textContent = data.uvindex; pushChartData(chartUv, data.uvindex); }
+      if (data.gas) { valGas.textContent = data.gas + " kΩ"; pushChartData(chartGas, data.gas); }
+      if (data.ai) { valAiLabel.textContent = data.ai; }
     }
 
     function startAioPolling() {
@@ -553,15 +665,13 @@
       }
     }
 
-    // Local Data Storage & History
-    function getStoredLogs() {
-      return JSON.parse(localStorage.getItem('weather_history') || '[]');
-    }
+    // LOCAL TELEMETRY STORAGE
+    function getStoredLogs() { return JSON.parse(localStorage.getItem('weather_history') || '[]'); }
 
     function renderHistoryTable() {
       const logs = getStoredLogs();
       if (logs.length === 0) {
-        historyTableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No stored readings yet.</td></tr>`;
+        historyTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No stored readings yet.</td></tr>`;
         return;
       }
 
@@ -574,42 +684,34 @@
           <td>${entry.ntcTemp}</td>
           <td>${entry.uvIndex}</td>
           <td>${entry.gas}</td>
+          <td>${entry.aiForecast}</td>
         </tr>
       `).reverse().join('');
     }
 
     document.getElementById('btnLogSnapshot').addEventListener('click', () => {
       const logs = getStoredLogs();
-      const newEntry = {
+      logs.push({
         time: new Date().toLocaleString(),
         bmeTemp: valBmeTemp.textContent,
         humidity: valHumidity.textContent,
         pressure: valPressure.textContent,
         ntcTemp: valNtcTemp.textContent,
         uvIndex: valUvIndex.textContent,
-        gas: valGas.textContent
-      };
-      logs.push(newEntry);
+        gas: valGas.textContent,
+        aiForecast: valAiLabel.textContent
+      });
       localStorage.setItem('weather_history', JSON.stringify(logs));
       renderHistoryTable();
     });
 
     document.getElementById('btnExportCsv').addEventListener('click', () => {
       const logs = getStoredLogs();
-      if (logs.length === 0) {
-        alert("No logs to export.");
-        return;
-      }
-
-      let csv = "Timestamp,BME Temp,Humidity,Pressure,NTC Temp,UV Index,Gas Resistance\n";
-      logs.forEach(row => {
-        csv += `"${row.time}","${row.bmeTemp}","${row.humidity}","${row.pressure}","${row.ntcTemp}","${row.uvIndex}","${row.gas}"\n`;
-      });
-
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
+      if (logs.length === 0) { alert("No logs to export."); return; }
+      let csv = "Timestamp,BME Temp,Humidity,Pressure,NTC Temp,UV Index,Gas Resistance,AI Forecast\n";
+      logs.forEach(row => { csv += `"${row.time}","${row.bmeTemp}","${row.humidity}","${row.pressure}","${row.ntcTemp}","${row.uvIndex}","${row.gas}","${row.aiForecast}"\n`; });
       const a = document.createElement('a');
-      a.href = url;
+      a.href = window.URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       a.download = `weather_data_${Date.now()}.csv`;
       a.click();
     });
