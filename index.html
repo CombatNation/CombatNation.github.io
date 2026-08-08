@@ -540,6 +540,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      font-size: 1.1rem;
+      font-weight: bold;
       transition: background 0.2s, transform 0.2s;
       cursor: pointer;
     }
@@ -547,16 +549,6 @@
     .tray-arrow-btn:hover {
       background: var(--accent-color);
       color: #0f172a;
-    }
-
-    .tray-arrow-btn svg {
-      width: 18px;
-      height: 18px;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 2.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
     }
 
     .console-body {
@@ -604,7 +596,7 @@
       </div>
 
       <div class="utility-menu-btns">
-        <button class="btn-secondary" onclick="openModal('controlModal')">💡 LCD Backlight Control</button>
+        <button class="btn-secondary" onclick="openModal('controlModal')">🎛️ LCD Backlight Remote</button>
         <button class="btn-secondary" onclick="openModal('historyModal')">📊 Stored Telemetry</button>
       </div>
     </div>
@@ -731,7 +723,7 @@
 
       <!-- SENSOR 9: aiprediction -->
       <div class="card ai-card">
-        <h2>AI Forecast</h2>
+        <h2>🤖 AI Weather Model</h2>
         <div class="metric-value" id="valAiLabel">Analyzing...</div>
         <div class="chart-container"><canvas id="chartAi"></canvas></div>
         <div class="metric-sub">RP2040 MicroTF On-Device Neural Net</div>
@@ -741,10 +733,8 @@
     <!-- BOTTOM COMMAND INTERFACE MODULE -->
     <div id="consoleModule" class="card console-module minimized">
       <div class="console-header">
-        <h3>Serial Terminal</h3>
-        <div class="tray-arrow-btn" id="trayArrow" onclick="toggleConsoleModule(event)">
-          <svg viewBox="0 0 24 24"><path d="M4 15l8-8 8 8"/></svg>
-        </div>
+        <h3>💻 Command Terminal</h3>
+        <div class="tray-arrow-btn" id="trayArrow" onclick="toggleConsoleModule(event)">˄</div>
         <div></div><!-- Grid Spacer for True Centering -->
       </div>
       <div class="console-body">
@@ -785,7 +775,7 @@
   <div id="controlModal" class="modal-overlay hidden">
     <div class="card modal-content">
       <div class="modal-header">
-        <h2>💡 LCD Backlight Control</h2>
+        <h2>LCD Backlight Remote Control</h2>
         <button class="btn-close" onclick="closeModal('controlModal')">&times;</button>
       </div>
       <div class="color-controls">
@@ -811,7 +801,7 @@
   <div id="historyModal" class="modal-overlay hidden">
     <div class="card modal-content" style="max-width: 1000px;">
       <div class="modal-header">
-        <h2>📊 Stored Telemetry History</h2>
+        <h2>Stored Telemetry History</h2>
         <button class="btn-close" onclick="closeModal('historyModal')">&times;</button>
       </div>
 
@@ -925,10 +915,10 @@
       
       if (module.classList.contains('minimized')) {
         module.classList.remove('minimized');
-        arrow.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>';
+        arrow.textContent = '˅';
       } else {
         module.classList.add('minimized');
-        arrow.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 15l8-8 8 8"/></svg>';
+        arrow.textContent = '˄';
       }
     }
 
@@ -1024,7 +1014,324 @@
     const chartUv       = new Chart(document.getElementById('chartUv').getContext('2d'),       createChartConfig('UV Index', '#eab308'));
     const chartUvRaw    = new Chart(document.getElementById('chartUvRaw').getContext('2d'),    createChartConfig('UV Raw ADC', '#f59e0b'));
     const chartGas      = new Chart(document.getElementById('chartGas').getContext('2d'),      createChartConfig('Gas Res.', '#f97316'));
-    const chartAi       = new Chart(document.getElementById('chartAi').getContext('2d'),       createChartConfig('AI Metric', '#d946ef'));
+    const chartAi       = new Chart(document.getElementById('chartAi').getContext('2d'),       createChartConfig('AI Output', '#d946ef'));
+
+    const chartExpanded = new Chart(document.getElementById('chartExpanded').getContext('2d'), createChartConfig('Expanded', '#38bdf8'));
+
+    // MAP ALL FEEDS TO THE FOCUSED VIEW CONTROLLER
+    const chartsMap = {
+      bme:      { chart: chartTemp,     color: '#38bdf8', title: 'BME Temperature (°F)',          sub: () => 'BME680 Precision Temperature Sensor', valElem: valBmeTemp },
+      humidity: { chart: chartHumidity, color: '#06b6d4', title: 'Relative Humidity (%)',          sub: () => 'BME680 Ambient Humidity Sensor', valElem: valHumidity },
+      pressure: { chart: chartPressure, color: '#a855f7', title: 'Barometric Pressure (hPa)',     sub: () => 'Sea-Level Normalized Barometer', valElem: valPressure },
+      ntc:      { chart: chartNtc,      color: '#22c55e', title: 'NTC Thermistor (°F)',           sub: () => 'Redundant Analog Thermistor (GP28)', valElem: valNtcTemp },
+      uv:       { chart: chartUv,       color: '#eab308', title: 'UV Index Rating',               sub: () => 'Calculated Solar Ultraviolet Intensity', valElem: valUvIndex },
+      uvraw:    { chart: chartUvRaw,    color: '#f59e0b', title: 'UV Raw ADC Count',              sub: () => 'Unprocessed 12-bit ADC Voltage Counter (GP27)', valElem: valUvRaw },
+      gas:      { chart: chartGas,      color: '#f97316', title: 'Gas Resistance (kΩ)',           sub: () => 'Air Quality & Volatile Organic Compounds', valElem: valGas },
+      gps:      { chart: null,          color: '#6366f1', title: 'GPS Position Map',              sub: () => 'NMEA GPS Satellite Location Telemetry', valElem: valGpsCoords },
+      ai:       { chart: chartAi,       color: '#d946ef', title: 'AI Forecast Label',             sub: () => 'RP2040 MicroTF Neural Net Output Class', valElem: valAiLabel }
+    };
+
+    function selectFocusedMetric(key) {
+      activeMetricKey = key;
+      document.querySelectorAll('.sidebar-btn').forEach(btn => btn.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+      syncFocusedChart();
+    }
+
+    function syncFocusedChart() {
+      const chartCanvas = document.getElementById('chartExpanded');
+      const mapDiv = document.getElementById('mapExpanded');
+      const config = chartsMap[activeMetricKey];
+
+      document.getElementById('focusedTitle').textContent = config.title;
+      document.getElementById('focusedMetricVal').textContent = config.valElem.textContent;
+      document.getElementById('focusedSubText').textContent = config.sub();
+
+      if (activeMetricKey === 'gps') {
+        chartCanvas.classList.add('hidden');
+        mapDiv.classList.remove('hidden');
+        setTimeout(() => mapExpandedObj && mapExpandedObj.invalidateSize(), 200);
+      } else {
+        mapDiv.classList.add('hidden');
+        chartCanvas.classList.remove('hidden');
+
+        chartExpanded.data.labels = [...config.chart.data.labels];
+        chartExpanded.data.datasets[0].data = [...config.chart.data.datasets[0].data];
+        chartExpanded.data.datasets[0].borderColor = config.color;
+        chartExpanded.data.datasets[0].backgroundColor = config.color + '22';
+        chartExpanded.data.datasets[0].label = config.title;
+        chartExpanded.update();
+      }
+    }
+
+    function pushChartData(chart, value) {
+      if (!chart) return;
+      const timeStr = new Date().toLocaleTimeString();
+      chart.data.labels.push(timeStr);
+      chart.data.datasets[0].data.push(value);
+      if (chart.data.labels.length > 20) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+      chart.update();
+
+      if (!viewToggle.checked) {
+        syncFocusedChart();
+      }
+    }
+
+    // COMMAND DISPATCHER (ADAFRUIT IO)
+    async function dispatchCommand(cmd) {
+      if (!aioUsername || !aioKey) {
+        logConsole(">> [Adafruit IO Warning] Please configure credentials first.");
+        btnAioConfig.click();
+        return;
+      }
+
+      try {
+        logConsole(`>> [Adafruit IO] Publishing to feed 'messageboard': "${cmd}"...`);
+        const response = await fetch(`https://io.adafruit.com/api/v2/${aioUsername}/feeds/messageboard/data`, {
+          method: 'POST',
+          headers: { 'X-AIO-Key': aioKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: cmd })
+        });
+
+        if (response.ok) {
+          logConsole(`>> [Adafruit IO] Delivered successfully.`);
+        } else logConsole(`>> [Adafruit IO Error] HTTP ${response.status}`);
+      } catch (err) { logConsole(`>> [Adafruit IO Error] ${err.message}`); }
+    }
+
+    function sendCommandFromInput() {
+      const cmd = rawCmdInput.value.trim();
+      if (cmd) {
+        dispatchCommand(cmd);
+        rawCmdInput.value = '';
+      }
+    }
+
+    document.getElementById('btnSendRgb').addEventListener('click', () => {
+      const hex = document.getElementById('rgbPicker').value;
+      sendColor(parseInt(hex.substr(1, 2), 16), parseInt(hex.substr(3, 2), 16), parseInt(hex.substr(5, 2), 16));
+    });
+
+    function sendColor(r, g, b) { dispatchCommand(`${r},${g},${b}`); }
+    document.getElementById('btnRainbow').addEventListener('click', () => dispatchCommand('rainbow'));
+    
+    // SEND BUTTON AND ENTER KEY LISTENERS
+    document.getElementById('btnSendRaw').addEventListener('click', sendCommandFromInput);
+    rawCmdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendCommandFromInput();
+      }
+    });
+
+    // TRIGGER ADAFRUIT IO LOGIN POPUP
+    btnAioConfig.addEventListener('click', async () => {
+      try {
+        const { user, key } = await promptAdafruitCredentials();
+        aioUsername = user;
+        aioKey = key;
+        localStorage.setItem('aio_username', aioUsername);
+        localStorage.setItem('aio_key', aioKey);
+        startAioPolling();
+      } catch (err) {
+        logConsole(`>> [Adafruit IO] ${err.message}`);
+      }
+    });
+
+    async function fetchFeedData(feedKey) {
+      if (!aioUsername || !aioKey) return null;
+      try {
+        const response = await fetch(`https://io.adafruit.com/api/v2/${aioUsername}/feeds/${feedKey}/data/last`, {
+          headers: { 'X-AIO-Key': aioKey }
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.value;
+      } catch (err) { return null; }
+    }
+
+    // FETCH SENSOR & TELEMETRY FEEDS FROM ADAFRUIT IO
+    async function updateDashboardFromAIO() {
+      if (!aioUsername || !aioKey) return;
+
+      const [tempbme, humidity, pressure, tempntc, uvindex, uvraw, gas, gps, aiFeed] = await Promise.all([
+        fetchFeedData('tempbme'),
+        fetchFeedData('humidity'),
+        fetchFeedData('pressure'),
+        fetchFeedData('tempthermistor'),
+        fetchFeedData('uvindex'),
+        fetchFeedData('uvraw'),
+        fetchFeedData('gasresistance'),
+        fetchFeedData('gps'),
+        fetchFeedData('aiprediction')
+      ]);
+
+      // 1. tempbme
+      if (tempbme !== null) {
+        valBmeTemp.textContent = parseFloat(tempbme).toFixed(1) + " °F";
+        document.getElementById('sideValBme').textContent = parseFloat(tempbme).toFixed(1) + "°F";
+        pushChartData(chartTemp, parseFloat(tempbme));
+      }
+
+      // 2. humidity
+      if (humidity !== null) {
+        valHumidity.textContent = parseFloat(humidity).toFixed(1) + " %";
+        document.getElementById('sideValHumidity').textContent = parseFloat(humidity).toFixed(1) + "%";
+        pushChartData(chartHumidity, parseFloat(humidity));
+      }
+
+      // 3. pressure
+      if (pressure !== null) {
+        valPressure.textContent = parseFloat(pressure).toFixed(0) + " hPa";
+        document.getElementById('sideValPressure').textContent = parseFloat(pressure).toFixed(0) + "hPa";
+        pushChartData(chartPressure, parseFloat(pressure));
+      }
+
+      // 4. tempthermistor
+      if (tempntc !== null) {
+        valNtcTemp.textContent = parseFloat(tempntc).toFixed(1) + " °F";
+        document.getElementById('sideValNtc').textContent = parseFloat(tempntc).toFixed(1) + "°F";
+        pushChartData(chartNtc, parseFloat(tempntc));
+      }
+
+      // 5. uvindex
+      if (uvindex !== null) {
+        valUvIndex.textContent = parseFloat(uvindex).toFixed(1);
+        document.getElementById('sideValUv').textContent = parseFloat(uvindex).toFixed(1);
+        pushChartData(chartUv, parseFloat(uvindex));
+      }
+
+      // 6. uvraw
+      if (uvraw !== null) {
+        valUvRaw.textContent = uvraw;
+        document.getElementById('sideValUvRaw').textContent = uvraw;
+        pushChartData(chartUvRaw, parseInt(uvraw));
+      }
+
+      // 7. gasresistance
+      if (gas !== null) {
+        valGas.textContent = parseFloat(gas).toFixed(2) + " kΩ";
+        document.getElementById('sideValGas').textContent = parseFloat(gas).toFixed(2) + "kΩ";
+        pushChartData(chartGas, parseFloat(gas));
+      }
+
+      // 8. gps (MAP LOCATION UPDATE)
+      if (gps !== null) {
+        const parts = gps.split(',');
+        let lat, lon;
+        if (parts.length >= 3 && parts[1] !== "0.000000" && parts[2] !== "0.000000") {
+          lat = parseFloat(parts[1]).toFixed(4);
+          lon = parseFloat(parts[2]).toFixed(4);
+          valGpsCoords.textContent = `${lat}°, ${lon}°`;
+          document.getElementById('sideValGps').textContent = `${lat}°, ${lon}°`;
+          updateGpsMap(lat, lon);
+        } else if (parts.length >= 2 && parts[0] !== "0.000000") {
+          lat = parseFloat(parts[0]).toFixed(4);
+          lon = parseFloat(parts[1]).toFixed(4);
+          valGpsCoords.textContent = `${lat}°, ${lon}°`;
+          document.getElementById('sideValGps').textContent = `${lat}°, ${lon}°`;
+          updateGpsMap(lat, lon);
+        } else {
+          valGpsCoords.textContent = "Searching Fix...";
+          document.getElementById('sideValGps').textContent = "No Fix";
+        }
+      }
+
+      // 9. aiprediction
+      if (aiFeed !== null) {
+        valAiLabel.textContent = aiFeed;
+        document.getElementById('sideValAi').textContent = aiFeed;
+        const score = aiFeed === "Sunny" ? 4 : aiFeed === "Partly Cloudy" ? 3 : aiFeed === "Overcast" ? 2 : 1;
+        pushChartData(chartAi, score);
+      }
+
+      aioStatusText.textContent = "Adafruit IO: Connected";
+      btnAioConfig.classList.add("connected");
+    }
+
+    function startAioPolling() {
+      if (aioPollInterval) clearInterval(aioPollInterval);
+      if (aioUsername && aioKey) {
+        updateDashboardFromAIO();
+        aioPollInterval = setInterval(updateDashboardFromAIO, 15000);
+      } else {
+        aioStatusText.textContent = "Adafruit IO: Inactive";
+        btnAioConfig.classList.remove("connected");
+      }
+    }
+
+    // TELEMETRY HISTORY SYSTEM
+    function getStoredLogs() { return JSON.parse(localStorage.getItem('weather_history') || '[]'); }
+
+    function renderHistoryTable() {
+      const logs = getStoredLogs();
+      if (logs.length === 0) {
+        historyTableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">No stored readings yet.</td></tr>`;
+        return;
+      }
+
+      historyTableBody.innerHTML = logs.map(entry => `
+        <tr>
+          <td>${entry.time}</td>
+          <td>${entry.bmeTemp}</td>
+          <td>${entry.humidity}</td>
+          <td>${entry.pressure}</td>
+          <td>${entry.ntcTemp}</td>
+          <td>${entry.uvIndex}</td>
+          <td>${entry.uvRaw}</td>
+          <td>${entry.gas}</td>
+          <td>${entry.gpsCoords}</td>
+          <td>${entry.aiForecast}</td>
+        </tr>
+      `).reverse().join('');
+    }
+
+    document.getElementById('btnLogSnapshot').addEventListener('click', () => {
+      const logs = getStoredLogs();
+      logs.push({
+        time: new Date().toLocaleString(),
+        bmeTemp: valBmeTemp.textContent,
+        humidity: valHumidity.textContent,
+        pressure: valPressure.textContent,
+        ntcTemp: valNtcTemp.textContent,
+        uvIndex: valUvIndex.textContent,
+        uvRaw: valUvRaw.textContent,
+        gas: valGas.textContent,
+        gpsCoords: valGpsCoords.textContent,
+        aiForecast: valAiLabel.textContent
+      });
+      localStorage.setItem('weather_history', JSON.stringify(logs));
+      renderHistoryTable();
+    });
+
+    document.getElementById('btnExportCsv').addEventListener('click', () => {
+      const logs = getStoredLogs();
+      if (logs.length === 0) { alert("No logs to export."); return; }
+      let csv = "Timestamp,BME Temp,Humidity,Pressure,NTC Temp,UV Index,UV Raw,Gas Resistance,GPS Coords,AI Forecast\n";
+      logs.forEach(row => { csv += `"${row.time}","${row.bmeTemp}","${row.humidity}","${row.pressure}","${row.ntcTemp}","${row.uvIndex}","${row.uvRaw}","${row.gas}","${row.gpsCoords}","${row.aiForecast}"\n`; });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('download', `weather_telemetry_${Date.now()}.csv`);
+      a.click();
+    });
+
+    document.getElementById('btnClearStorage').addEventListener('click', () => {
+      if (confirm("Are you sure you want to clear all saved historical logs?")) {
+        localStorage.removeItem('weather_history');
+        renderHistoryTable();
+      }
+    });
+
+    // Initialize Dashboard
+    initMaps();
+    renderHistoryTable();
+    syncFocusedChart();
+    startAioPolling();
   </script>
 </body>
 </html>
