@@ -1305,7 +1305,7 @@
         }
 
         updateDashboardFromAIO();
-        aioPollInterval = setInterval(updateDashboardFromAIO, 15000);
+        aioPollInterval = setInterval(updateDashboardFromAIO, 30000);
       } else {
         aioStatusText.textContent = "Adafruit IO: Inactive";
         btnAioConfig.classList.remove("connected");
