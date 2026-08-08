@@ -588,7 +588,7 @@
       <div class="view-toggle-group">
         <span>Focused View</span>
         <label class="toggle-switch">
-          <!-- Unchecked by default for Focused View -->
+          <!-- Unchecked by default for Grid View -->
           <input type="checkbox" id="viewToggle">
           <span class="slider"></span>
         </label>
@@ -601,8 +601,8 @@
       </div>
     </div>
 
-    <!-- 1. FOCUSED SIDEBAR VIEW (ACTIVE BY DEFAULT) -->
-    <div id="focusedView" class="focused-layout">
+    <!-- 1. FOCUSED SIDEBAR VIEW (HIDDEN BY DEFAULT) -->
+    <div id="focusedView" class="focused-layout hidden">
       <div class="sidebar">
         <button class="sidebar-btn btn-bme active" onclick="selectFocusedMetric('bme')">
           <span>BME Temperature</span>
@@ -655,8 +655,8 @@
       </div>
     </div>
 
-    <!-- 2. GRID VIEW LAYOUT (HIDDEN BY DEFAULT) -->
-    <div id="gridView" class="grid hidden">
+    <!-- 2. GRID VIEW LAYOUT (ACTIVE BY DEFAULT) -->
+    <div id="gridView" class="grid">
       <!-- SENSOR 1: tempbme -->
       <div class="card">
         <h2>BME Temperature</h2>
@@ -978,13 +978,13 @@
     // VIEW SWITCHING TOGGLE
     viewToggle.addEventListener('change', () => {
       if (viewToggle.checked) {
-        gridView.classList.remove('hidden');
-        focusedView.classList.add('hidden');
-        setTimeout(() => mapGridObj && mapGridObj.invalidateSize(), 200);
-      } else {
         gridView.classList.add('hidden');
         focusedView.classList.remove('hidden');
         syncFocusedChart();
+      } else {
+        gridView.classList.remove('hidden');
+        focusedView.classList.add('hidden');
+        setTimeout(() => mapGridObj && mapGridObj.invalidateSize(), 200);
       }
     });
 
@@ -1099,7 +1099,11 @@
 
         if (response.ok) {
           logConsole(`>> [Adafruit IO] Delivered successfully.`);
-        } else logConsole(`>> [Adafruit IO Error] HTTP ${response.status}`);
+        } else if (response.status === 401 || response.status === 403) {
+          logConsole(`>> [Adafruit IO Error] Invalid Credentials (HTTP ${response.status})`);
+        } else {
+          logConsole(`>> [Adafruit IO Error] HTTP ${response.status}`);
+        }
       } catch (err) { logConsole(`>> [Adafruit IO Error] ${err.message}`); }
     }
 
@@ -1142,120 +1146,164 @@
       }
     });
 
+    // TEST CREDENTIALS AGAINST THE API
+    async function validateAioCredentials() {
+      try {
+        const response = await fetch(`https://io.adafruit.com/api/v2/${aioUsername}/feeds`, {
+          headers: { 'X-AIO-Key': aioKey }
+        });
+        return response.ok;
+      } catch (err) {
+        return false;
+      }
+    }
+
     async function fetchFeedData(feedKey) {
       if (!aioUsername || !aioKey) return null;
       try {
         const response = await fetch(`https://io.adafruit.com/api/v2/${aioUsername}/feeds/${feedKey}/data/last`, {
           headers: { 'X-AIO-Key': aioKey }
         });
+        // Catch authentication/not found errors so we can abort polling
+        if (response.status === 401 || response.status === 403 || response.status === 404) {
+          throw new Error("AuthError");
+        }
         if (!response.ok) return null;
         const data = await response.json();
         return data.value;
-      } catch (err) { return null; }
+      } catch (err) { 
+        if (err.message === "AuthError") throw err;
+        return null; 
+      }
     }
 
     // FETCH SENSOR & TELEMETRY FEEDS FROM ADAFRUIT IO
     async function updateDashboardFromAIO() {
       if (!aioUsername || !aioKey) return;
 
-      const [tempbme, humidity, pressure, tempntc, uvindex, uvraw, gas, gps, aiFeed] = await Promise.all([
-        fetchFeedData('tempbme'),
-        fetchFeedData('humidity'),
-        fetchFeedData('pressure'),
-        fetchFeedData('tempthermistor'),
-        fetchFeedData('uvindex'),
-        fetchFeedData('uvraw'),
-        fetchFeedData('gasresistance'),
-        fetchFeedData('gps'),
-        fetchFeedData('aiprediction')
-      ]);
+      try {
+        const [tempbme, humidity, pressure, tempntc, uvindex, uvraw, gas, gps, aiFeed] = await Promise.all([
+          fetchFeedData('tempbme'),
+          fetchFeedData('humidity'),
+          fetchFeedData('pressure'),
+          fetchFeedData('tempthermistor'),
+          fetchFeedData('uvindex'),
+          fetchFeedData('uvraw'),
+          fetchFeedData('gasresistance'),
+          fetchFeedData('gps'),
+          fetchFeedData('aiprediction')
+        ]);
 
-      // 1. tempbme
-      if (tempbme !== null) {
-        valBmeTemp.textContent = parseFloat(tempbme).toFixed(1) + " °F";
-        document.getElementById('sideValBme').textContent = parseFloat(tempbme).toFixed(1) + "°F";
-        pushChartData(chartTemp, parseFloat(tempbme));
-      }
+        // 1. tempbme
+        if (tempbme !== null) {
+          valBmeTemp.textContent = parseFloat(tempbme).toFixed(1) + " °F";
+          document.getElementById('sideValBme').textContent = parseFloat(tempbme).toFixed(1) + "°F";
+          pushChartData(chartTemp, parseFloat(tempbme));
+        }
 
-      // 2. humidity
-      if (humidity !== null) {
-        valHumidity.textContent = parseFloat(humidity).toFixed(1) + " %";
-        document.getElementById('sideValHumidity').textContent = parseFloat(humidity).toFixed(1) + "%";
-        pushChartData(chartHumidity, parseFloat(humidity));
-      }
+        // 2. humidity
+        if (humidity !== null) {
+          valHumidity.textContent = parseFloat(humidity).toFixed(1) + " %";
+          document.getElementById('sideValHumidity').textContent = parseFloat(humidity).toFixed(1) + "%";
+          pushChartData(chartHumidity, parseFloat(humidity));
+        }
 
-      // 3. pressure
-      if (pressure !== null) {
-        valPressure.textContent = parseFloat(pressure).toFixed(0) + " hPa";
-        document.getElementById('sideValPressure').textContent = parseFloat(pressure).toFixed(0) + "hPa";
-        pushChartData(chartPressure, parseFloat(pressure));
-      }
+        // 3. pressure
+        if (pressure !== null) {
+          valPressure.textContent = parseFloat(pressure).toFixed(0) + " hPa";
+          document.getElementById('sideValPressure').textContent = parseFloat(pressure).toFixed(0) + "hPa";
+          pushChartData(chartPressure, parseFloat(pressure));
+        }
 
-      // 4. tempthermistor
-      if (tempntc !== null) {
-        valNtcTemp.textContent = parseFloat(tempntc).toFixed(1) + " °F";
-        document.getElementById('sideValNtc').textContent = parseFloat(tempntc).toFixed(1) + "°F";
-        pushChartData(chartNtc, parseFloat(tempntc));
-      }
+        // 4. tempthermistor
+        if (tempntc !== null) {
+          valNtcTemp.textContent = parseFloat(tempntc).toFixed(1) + " °F";
+          document.getElementById('sideValNtc').textContent = parseFloat(tempntc).toFixed(1) + "°F";
+          pushChartData(chartNtc, parseFloat(tempntc));
+        }
 
-      // 5. uvindex
-      if (uvindex !== null) {
-        valUvIndex.textContent = parseFloat(uvindex).toFixed(1);
-        document.getElementById('sideValUv').textContent = parseFloat(uvindex).toFixed(1);
-        pushChartData(chartUv, parseFloat(uvindex));
-      }
+        // 5. uvindex
+        if (uvindex !== null) {
+          valUvIndex.textContent = parseFloat(uvindex).toFixed(1);
+          document.getElementById('sideValUv').textContent = parseFloat(uvindex).toFixed(1);
+          pushChartData(chartUv, parseFloat(uvindex));
+        }
 
-      // 6. uvraw
-      if (uvraw !== null) {
-        valUvRaw.textContent = uvraw;
-        document.getElementById('sideValUvRaw').textContent = uvraw;
-        pushChartData(chartUvRaw, parseInt(uvraw));
-      }
+        // 6. uvraw
+        if (uvraw !== null) {
+          valUvRaw.textContent = uvraw;
+          document.getElementById('sideValUvRaw').textContent = uvraw;
+          pushChartData(chartUvRaw, parseInt(uvraw));
+        }
 
-      // 7. gasresistance
-      if (gas !== null) {
-        valGas.textContent = parseFloat(gas).toFixed(2) + " kΩ";
-        document.getElementById('sideValGas').textContent = parseFloat(gas).toFixed(2) + "kΩ";
-        pushChartData(chartGas, parseFloat(gas));
-      }
+        // 7. gasresistance
+        if (gas !== null) {
+          valGas.textContent = parseFloat(gas).toFixed(2) + " kΩ";
+          document.getElementById('sideValGas').textContent = parseFloat(gas).toFixed(2) + "kΩ";
+          pushChartData(chartGas, parseFloat(gas));
+        }
 
-      // 8. gps (MAP LOCATION UPDATE)
-      if (gps !== null) {
-        const parts = gps.split(',');
-        let lat, lon;
-        if (parts.length >= 3 && parts[1] !== "0.000000" && parts[2] !== "0.000000") {
-          lat = parseFloat(parts[1]).toFixed(4);
-          lon = parseFloat(parts[2]).toFixed(4);
-          valGpsCoords.textContent = `${lat}°, ${lon}°`;
-          document.getElementById('sideValGps').textContent = `${lat}°, ${lon}°`;
-          updateGpsMap(lat, lon);
-        } else if (parts.length >= 2 && parts[0] !== "0.000000") {
-          lat = parseFloat(parts[0]).toFixed(4);
-          lon = parseFloat(parts[1]).toFixed(4);
-          valGpsCoords.textContent = `${lat}°, ${lon}°`;
-          document.getElementById('sideValGps').textContent = `${lat}°, ${lon}°`;
-          updateGpsMap(lat, lon);
-        } else {
-          valGpsCoords.textContent = "Searching Fix...";
-          document.getElementById('sideValGps').textContent = "No Fix";
+        // 8. gps (MAP LOCATION UPDATE)
+        if (gps !== null) {
+          const parts = gps.split(',');
+          let lat, lon;
+          if (parts.length >= 3 && parts[1] !== "0.000000" && parts[2] !== "0.000000") {
+            lat = parseFloat(parts[1]).toFixed(4);
+            lon = parseFloat(parts[2]).toFixed(4);
+            valGpsCoords.textContent = `${lat}°, ${lon}°`;
+            document.getElementById('sideValGps').textContent = `${lat}°, ${lon}°`;
+            updateGpsMap(lat, lon);
+          } else if (parts.length >= 2 && parts[0] !== "0.000000") {
+            lat = parseFloat(parts[0]).toFixed(4);
+            lon = parseFloat(parts[1]).toFixed(4);
+            valGpsCoords.textContent = `${lat}°, ${lon}°`;
+            document.getElementById('sideValGps').textContent = `${lat}°, ${lon}°`;
+            updateGpsMap(lat, lon);
+          } else {
+            valGpsCoords.textContent = "Searching Fix...";
+            document.getElementById('sideValGps').textContent = "No Fix";
+          }
+        }
+
+        // 9. aiprediction
+        if (aiFeed !== null) {
+          valAiLabel.textContent = aiFeed;
+          document.getElementById('sideValAi').textContent = aiFeed;
+          const score = aiFeed === "Sunny" ? 4 : aiFeed === "Partly Cloudy" ? 3 : aiFeed === "Overcast" ? 2 : 1;
+          pushChartData(chartAi, score);
+        }
+
+        aioStatusText.textContent = "Adafruit IO: Connected";
+        btnAioConfig.classList.add("connected");
+
+      } catch (err) {
+        if (err.message === "AuthError") {
+          aioStatusText.textContent = "Adafruit IO: Invalid Credentials";
+          btnAioConfig.classList.remove("connected");
+          if (aioPollInterval) {
+            clearInterval(aioPollInterval);
+            aioPollInterval = null;
+          }
+          logConsole(">> [Adafruit IO Error] Authentication lost during polling. Check credentials.");
         }
       }
-
-      // 9. aiprediction
-      if (aiFeed !== null) {
-        valAiLabel.textContent = aiFeed;
-        document.getElementById('sideValAi').textContent = aiFeed;
-        const score = aiFeed === "Sunny" ? 4 : aiFeed === "Partly Cloudy" ? 3 : aiFeed === "Overcast" ? 2 : 1;
-        pushChartData(chartAi, score);
-      }
-
-      aioStatusText.textContent = "Adafruit IO: Connected";
-      btnAioConfig.classList.add("connected");
     }
 
-    function startAioPolling() {
+    async function startAioPolling() {
       if (aioPollInterval) clearInterval(aioPollInterval);
+      
       if (aioUsername && aioKey) {
+        aioStatusText.textContent = "Adafruit IO: Connecting...";
+        
+        // Validate credentials before starting the polling loop
+        const isValid = await validateAioCredentials();
+        if (!isValid) {
+          aioStatusText.textContent = "Adafruit IO: Invalid Credentials";
+          btnAioConfig.classList.remove("connected");
+          logConsole(">> [Adafruit IO Error] Connection failed. Please check your Username and Key.");
+          return;
+        }
+
         updateDashboardFromAIO();
         aioPollInterval = setInterval(updateDashboardFromAIO, 15000);
       } else {
